@@ -6,11 +6,11 @@ import "../../src/SimpleVault.sol";
 import "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
 /**
- * @title SimpleVaultTest
+ * @title SimpleVaultUnitTest
  * @author cristianrisueo
  * @notice Tests unitarios para el contrato SimpleVault.sol
  */
-contract SimpleVaultTest is Test {
+contract SimpleVaultUnitTest is Test {
     //* Variables de estado
 
     // Contratos: Vault y WETH mock
