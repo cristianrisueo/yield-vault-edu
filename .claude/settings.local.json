@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git submodule status:*)",
+      "Bash(forge test:*)"
+    ]
+  }
+}
