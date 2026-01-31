@@ -140,11 +140,13 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         IERC20(WETH_SEPOLIA).forceApprove(address(aavePool), type(uint256).max);
     }
 
-    //* Lógica principal: deposit, withdraw y redeem
+    //* Lógica principal: deposit, mint, withdraw y redeem
 
     /**
      * @notice Deposita WETH en Aave y mintea shares al usuario
      * @dev Override de ERC4626.deposit()
+     * @dev La diferencia con mint() es que aquí se especifica la cantidad de assets que
+     *      se quieren depositar, en lugar de la cantidad de shares que se quieren recibir
      * @param assets Cantidad de WETH a depositar
      * @param receiver Dirección que recibirá las shares
      * @return shares Cantidad de shares mintadas al usuario
@@ -174,6 +176,43 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         _mint(receiver, shares);
 
         // Emite evento de depósito en el vault y retorna las shares mintadas
+        emit Deposited(receiver, assets, shares);
+    }
+
+    /**
+     * @notice Mintea shares exactas y deposita los WETH necesarios en Aave
+     * @dev Override de ERC4626.mint().
+     * @dev La diferencia con deposit() es que aquí se especifica la cantidad de shares que
+     *      se quieren recibir, en lugar de la cantidad de assets que se quieren depositar
+     * @param shares Cantidad de shares a mintear
+     * @param receiver Dirección que recibirá las shares
+     * @return assets Cantidad de WETH depositados
+     */
+    function mint(uint256 shares, address receiver) public override whenNotPaused returns (uint256 assets) {
+        // Comprueba que no se minteen 0 shares
+        if (shares == 0) revert AaveVault__ZeroAmount();
+
+        // Calcula cuántos assets se necesitan para mintear esas shares
+        assets = previewMint(shares);
+
+        // Comprueba que no se exceda el max TVL del vault
+        if (totalAssets() + assets > maxTVL) {
+            revert AaveVault__MaxTVLExceeded();
+        }
+
+        // Transfiere el WETH del usuario al vault
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), assets);
+
+        // Hace supply de WETH a Aave (recibe aWETH). Si algo falla, revertimos
+        try aavePool.supply(asset(), assets, address(this), 0) {}
+        catch {
+            revert AaveVault__DepositFailed();
+        }
+
+        // Mintea las shares solicitadas al receiver
+        _mint(receiver, shares);
+
+        // Emite evento de depósito en el vault y retorna los assets depositados
         emit Deposited(receiver, assets, shares);
     }
 
@@ -399,7 +438,7 @@ contract AaveVault is ERC4626, Ownable, Pausable {
 
         // Emite evento de emergency withdraw
         emit EmergencyWithdraw(receiver, aTokenBalance);
-    }   
+    }
 
     //* Funciones públicas de consulta
 
