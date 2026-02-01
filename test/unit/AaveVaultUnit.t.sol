@@ -17,9 +17,9 @@ contract AaveVaultUnitTest is Test {
     /// @notice Instancia del AaveVault a testear
     AaveVault public vault;
 
-    /// @notice Direcciones hardcodeadas de los contratos en Sepolia
-    address constant WETH_ADDRESS = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
-    address constant AAVE_POOL_ADDRESS = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
+    /// @notice Direcciones de los contratos en Sepolia
+    address constant WETH = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
+    address constant POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
 
     /// @notice Usuarios de prueba
     address public owner;
@@ -35,7 +35,7 @@ contract AaveVaultUnitTest is Test {
      */
     function setUp() public {
         owner = address(this);
-        vault = new AaveVault();
+        vault = new AaveVault(WETH, POOL);
     }
 
     //* Test unitarios de lógica principal: Depósitos
@@ -49,11 +49,11 @@ contract AaveVaultUnitTest is Test {
         uint256 deposit_amount = 1 ether;
 
         // Entrega la cantidad a Alice y usa su cuenta para depositar
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
         // Aprueba el vault para gastar su WETH y deposita
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         uint256 shares_received = vault.deposit(deposit_amount, alice);
 
         vm.stopPrank();
@@ -88,11 +88,11 @@ contract AaveVaultUnitTest is Test {
         vault.pause();
 
         // Entrega la cantidad a Alice y usa su cuenta para depositar
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
         // Aprueba el vault para gastar su WETH
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
 
         // Espera que se revierta por estar pausado el vault, y deposita
         vm.expectRevert(abi.encodeWithSignature("EnforcedPause()"));
@@ -111,11 +111,11 @@ contract AaveVaultUnitTest is Test {
         uint256 exceeding_amount = max_tvl + 1 ether;
 
         // Dar la cantidad de exceso a Alice
-        deal(WETH_ADDRESS, alice, exceeding_amount);
+        deal(WETH, alice, exceeding_amount);
         vm.startPrank(alice);
 
         // Aprueba el vault para gastar su WETH
-        IERC20(WETH_ADDRESS).approve(address(vault), exceeding_amount);
+        IERC20(WETH).approve(address(vault), exceeding_amount);
 
         // Espera que se revierta por exceder el max TVL, y deposita
         vm.expectRevert(AaveVault.AaveVault__MaxTVLExceeded.selector);
@@ -135,28 +135,28 @@ contract AaveVaultUnitTest is Test {
         uint256 amount_charlie = 1.5 ether;
 
         // Entrega la cantidad a Alice y deposita
-        deal(WETH_ADDRESS, alice, amount_alice);
+        deal(WETH, alice, amount_alice);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), amount_alice);
+        IERC20(WETH).approve(address(vault), amount_alice);
         vault.deposit(amount_alice, alice);
 
         vm.stopPrank();
 
         // Entrega la cantidad a Bob y deposita
-        deal(WETH_ADDRESS, bob, amount_bob);
+        deal(WETH, bob, amount_bob);
         vm.startPrank(bob);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), amount_bob);
+        IERC20(WETH).approve(address(vault), amount_bob);
         vault.deposit(amount_bob, bob);
 
         vm.stopPrank();
 
         // Entrega la cantidad a Charlie y deposita
-        deal(WETH_ADDRESS, charlie, amount_charlie);
+        deal(WETH, charlie, amount_charlie);
         vm.startPrank(charlie);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), amount_charlie);
+        IERC20(WETH).approve(address(vault), amount_charlie);
         vault.deposit(amount_charlie, charlie);
 
         vm.stopPrank();
@@ -177,10 +177,10 @@ contract AaveVaultUnitTest is Test {
         uint256 deposit_amount = 5 ether;
 
         // Setup: Se entrega la cantidad a Alice y deposita
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vault.deposit(deposit_amount, alice);
 
         // Alice retira la misma cantidad
@@ -191,7 +191,7 @@ contract AaveVaultUnitTest is Test {
         // Comprobaciones: Cantidad retirada coincide, shares de Alice a 0, balance WETH de Alice correcto
         assertEq(assets_withdrawn, deposit_amount, "Cantidad retirada incorrecta");
         assertEq(vault.balanceOf(alice), 0, "Alice aun tiene shares");
-        assertEq(IERC20(WETH_ADDRESS).balanceOf(alice), deposit_amount, "Alice no recibio WETH");
+        assertEq(IERC20(WETH).balanceOf(alice), deposit_amount, "Alice no recibio WETH");
     }
 
     /**
@@ -215,10 +215,10 @@ contract AaveVaultUnitTest is Test {
         uint256 withdraw_amount = 4 ether;
 
         // Setup: Se entrega la cantidad a depositar (10 WETH) a Alice y deposita
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vault.deposit(deposit_amount, alice);
 
         // Alice retira la cantidad parcial (4 WETH)
@@ -228,7 +228,7 @@ contract AaveVaultUnitTest is Test {
 
         // Comprobaciones: Alice tiene shares y su balance de WETH es correcto
         assertGt(vault.balanceOf(alice), 0, "Alice no tiene shares restantes");
-        assertEq(IERC20(WETH_ADDRESS).balanceOf(alice), withdraw_amount, "Balance WETH incorrecto");
+        assertEq(IERC20(WETH).balanceOf(alice), withdraw_amount, "Balance WETH incorrecto");
     }
 
     /**
@@ -241,10 +241,10 @@ contract AaveVaultUnitTest is Test {
         uint256 withdraw_amount = 10 ether;
 
         // Setup: Se entrega la cantidad a depositar (5 WETH) a Alice y deposita
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vault.deposit(deposit_amount, alice);
 
         // Se espera que revierta y Alice retira la cantidad excesiva (10 WETH)
@@ -277,10 +277,10 @@ contract AaveVaultUnitTest is Test {
         uint256 deposit_amount = 10 ether;
 
         // Se entrega la cantidad a depositar a Alice y deposita
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vault.deposit(deposit_amount, alice);
 
         vm.stopPrank();
@@ -304,11 +304,11 @@ contract AaveVaultUnitTest is Test {
         vault.emergencyExit();
 
         // Alice intenta depositar despues de emergency exit
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
         // Se espera que revierta al intentar depositar
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vm.expectRevert();
         vault.deposit(deposit_amount, alice);
 
@@ -361,20 +361,20 @@ contract AaveVaultUnitTest is Test {
         uint256 amountAWETH = 2 ether;
         address receiver = owner;
 
-        // El address del aWETH obtenida de Aave a través del constructor del vault
-        address aWETH = address(vault.aWETH());
+        // El address del aToken obtenida de Aave a través del constructor del vault
+        address aWETH = address(vault.aToken());
 
         // Enviamos la cantidad de WETH a Alice y la deposita en el vault
-        deal(WETH_ADDRESS, alice, amountAWETH);
+        deal(WETH, alice, amountAWETH);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), amountWETH);
+        IERC20(WETH).approve(address(vault), amountWETH);
         vault.deposit(amountWETH, alice);
 
         vm.stopPrank();
 
         // Obtenemos los balances iniciales de WETH y aWETH del vault antes del rescate
-        uint256 wethToRescue = IERC20(WETH_ADDRESS).balanceOf(address(vault));
+        uint256 wethToRescue = IERC20(WETH).balanceOf(address(vault));
         uint256 aWethToRescue = IERC20(aWETH).balanceOf(address(vault));
 
         // Pausamos el vault y ejecutamos el emergency withdraw
@@ -383,11 +383,11 @@ contract AaveVaultUnitTest is Test {
 
         // Realizamos las comprobaciones: El owner recibe el aWETH y WETH
         assertEq(IERC20(aWETH).balanceOf(receiver), aWethToRescue, "aWETH no rescatado");
-        assertEq(IERC20(WETH_ADDRESS).balanceOf(receiver), wethToRescue, "WETH no rescatado");
+        assertEq(IERC20(WETH).balanceOf(receiver), wethToRescue, "WETH no rescatado");
 
         // Realizamos las comprobaciones: El vault no tiene aWETH ni WETH
         assertEq(IERC20(aWETH).balanceOf(address(vault)), 0, "Aun queda aWETH");
-        assertEq(IERC20(WETH_ADDRESS).balanceOf(address(vault)), 0, "Aun queda WETH");
+        assertEq(IERC20(WETH).balanceOf(address(vault)), 0, "Aun queda WETH");
     }
 
     //* Test unitarios de lógica adicional: Pausable
@@ -437,10 +437,10 @@ contract AaveVaultUnitTest is Test {
         vault.pause();
 
         // Alice no deberia poder depositar. Se espera que revierta
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vm.expectRevert();
         vault.deposit(deposit_amount, alice);
 
@@ -456,10 +456,10 @@ contract AaveVaultUnitTest is Test {
         uint256 deposit_amount = 5 ether;
 
         // Setup: Alice deposita primero
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         vault.deposit(deposit_amount, alice);
 
         vm.stopPrank();
@@ -506,11 +506,11 @@ contract AaveVaultUnitTest is Test {
         vault.setMaxTVL(new_max);
 
         // Se entrega la cantidad de nuevo TVL a Alice
-        deal(WETH_ADDRESS, alice, new_max);
+        deal(WETH, alice, new_max);
         vm.startPrank(alice);
 
         // Aprueba y realiza el depósito
-        IERC20(WETH_ADDRESS).approve(address(vault), new_max);
+        IERC20(WETH).approve(address(vault), new_max);
         vault.deposit(new_max, alice);
         vm.stopPrank();
 
@@ -529,10 +529,10 @@ contract AaveVaultUnitTest is Test {
         uint256 deposit_amount = 10 ether;
 
         // Se entrga la cantidad a Alice y deposita
-        deal(WETH_ADDRESS, alice, deposit_amount);
+        deal(WETH, alice, deposit_amount);
         vm.startPrank(alice);
 
-        IERC20(WETH_ADDRESS).approve(address(vault), deposit_amount);
+        IERC20(WETH).approve(address(vault), deposit_amount);
         uint256 shares = vault.deposit(deposit_amount, alice);
 
         vm.stopPrank();

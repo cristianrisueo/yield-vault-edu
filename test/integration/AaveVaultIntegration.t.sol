@@ -25,6 +25,10 @@ contract AaveVaultIntegrationTest is Test {
     address public alice = makeAddr("alice");
     address public bob = makeAddr("bob");
 
+    /// @notice Direcciones de los contratos en Sepolia
+    address constant WETH = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
+    address constant POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
+
     /// @notice Balance inicial de WETH para cada usuario
     uint256 constant INITIAL_BALANCE = 10 ether;
 
@@ -36,7 +40,7 @@ contract AaveVaultIntegrationTest is Test {
      */
     function setUp() public {
         // Deploy del vault (usa contratos reales de Sepolia)
-        vault = new AaveVault();
+        vault = new AaveVault(WETH, POOL);
         weth = IERC20(vault.asset());
 
         // Da 10 WETH a Alice y Bob

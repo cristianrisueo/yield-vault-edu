@@ -21,8 +21,9 @@ contract AaveVaultInvariants is StdInvariant, Test {
     Handler handler;
     IERC20 weth;
 
-    /// @notice Dirección WETH Sepolia
-    address constant WETH_ADDRESS = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
+    /// @notice Direcciones de los contratos en Sepolia
+    address constant WETH = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
+    address constant POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
 
     //* Setup del entorno de testing
 
@@ -31,8 +32,8 @@ contract AaveVaultInvariants is StdInvariant, Test {
      * @dev Despliega los contratos weth, vault y handler. Setea el target en el handler
      */
     function setUp() public {
-        weth = IERC20(WETH_ADDRESS);
-        vault = new AaveVault();
+        weth = IERC20(WETH);
+        vault = new AaveVault(WETH, POOL);
         handler = new Handler(vault, weth);
 
         targetContract(address(handler));
@@ -67,9 +68,9 @@ contract AaveVaultInvariants is StdInvariant, Test {
         // Obtiene total de WETH + aWETH (los assets) del contrato
         uint256 reportedAssets = vault.totalAssets();
 
-        // Obtiene los balances de WETH y aWETH del vault por separado de sus respectivos contratos
+        // Obtiene los balances de WETH y aToken del vault por separado de sus respectivos contratos
         uint256 wethBalance = weth.balanceOf(address(vault));
-        uint256 aWethBalance = IERC20(address(vault.aWETH())).balanceOf(address(vault));
+        uint256 aWethBalance = IERC20(address(vault.aToken())).balanceOf(address(vault));
 
         // Comprueba los valores obtenidos por vías distintas sean los mismos, si no el contrato
         // tiene mala tesorería

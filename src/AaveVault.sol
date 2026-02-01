@@ -102,42 +102,77 @@ contract AaveVault is ERC4626, Ownable, Pausable {
 
     //* Variables de estado
 
-    /// @notice Instancias de contratos Aave: Pool, aToken y Data Provider
+    /// @notice Instancia del Pool de Aave
     IPool public immutable aavePool;
-    IAToken public immutable aWETH;
-    IPoolDataProvider public immutable dataProvider;
+
+    /// @notice Token que representa los assets depositados en Aave
+    IAToken public immutable aToken;
 
     /// @notice Máximo TVL permitido en el vault (en WETH)
     uint256 public maxTVL;
-
-    /// @notice Dirección de WETH y aWETH en Sepolia
-    address private constant WETH_SEPOLIA = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
-
-    /// @notice Direcciones Aave v3 Sepolia: Pool y Data Provider
-    address private constant AAVE_POOL_SEPOLIA = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
-    address private constant AAVE_DATA_PROVIDER = 0x3e9708d80f7B3e43118013075F7e95CE3AB31F31;
 
     //* Constructor
 
     /**
      * @notice Constructor del AaveVault
-     * @dev Inicializa el vault con WETH de la res Sepolia como underlying asset
-     *      y configura los contratos Aave con los addreses de Sepolia
+     * @dev Inicializa el vault con el asset subyacente y configura los contratos Aave
+     * @param _asset Dirección del token subyacente (WETH)
+     * @param _aavePool Dirección del Pool de Aave v3
      */
-    constructor() ERC4626(IERC20(WETH_SEPOLIA)) ERC20("Aave Vault WETH", "avWETH") Ownable(msg.sender) {
-        // Inicializa los contratos de Aave usando sus direcciones en Sepolia
-        aavePool = IPool(AAVE_POOL_SEPOLIA);
-        dataProvider = IPoolDataProvider(AAVE_DATA_PROVIDER);
+    constructor(address _asset, address _aavePool)
+        ERC4626(IERC20(_asset))
+        ERC20("Aave Vault WETH", "avWETH")
+        Ownable(msg.sender)
+    {
+        // Asigna las variables immutable
+        aavePool = IPool(_aavePool);
 
-        // Obtiene la dirección de aWETH desde Aave Data Provider (de sepolia) e instancia el contrato
-        (address aTokenAddress,,) = dataProvider.getReserveTokensAddresses(WETH_SEPOLIA);
-        aWETH = IAToken(aTokenAddress);
+        // Obtiene la dirección del aToken dinámicamente desde Aave Pool
+        address aTokenAddress = aavePool.getReserveData(_asset).aTokenAddress;
+        aToken = IAToken(aTokenAddress);
 
         // Setea un TVL máximo inicial (circuit breaker)
         maxTVL = 100 ether;
 
         // Allowance infinito de WETH al Aave Pool (Permite a Aave mover todo el WETH necesario del vault)
-        IERC20(WETH_SEPOLIA).forceApprove(address(aavePool), type(uint256).max);
+        IERC20(asset()).forceApprove(address(aavePool), type(uint256).max);
+    }
+
+    //* Funciones internas de integración con Aave
+
+    /**
+     * @notice Deposita assets en Aave Pool
+     * @dev Función interna que centraliza la lógica de supply a Aave
+     * @dev Transfiere tokens del usuario al vault y hace supply a Aave
+     * @param assets Cantidad de assets a depositar en Aave
+     */
+    function _depositToAave(uint256 assets) internal {
+        // Transfiere el WETH del usuario al vault
+        IERC20(asset()).safeTransferFrom(msg.sender, address(this), assets);
+
+        // Hace supply de WETH a Aave (recibe aWETH 1:1 inicialmente). Si algo falla, revertimos
+        try aavePool.supply(asset(), assets, address(this), 0) {}
+        catch {
+            revert AaveVault__DepositFailed();
+        }
+    }
+
+    /**
+     * @notice Retira assets de Aave Pool
+     * @dev Función interna que centraliza la lógica de withdraw de Aave
+     * @dev Retira de Aave al vault y luego transfiere al receiver
+     * @param assets Cantidad de assets a retirar de Aave
+     * @param receiver Dirección que recibirá los assets
+     */
+    function _withdrawFromAave(uint256 assets, address receiver) internal {
+        // Withdraw de Aave. Quemamos aWETH y recibimos WETH (+yield) directo al vault
+        try aavePool.withdraw(asset(), assets, address(this)) returns (uint256) {}
+        catch {
+            revert AaveVault__WithdrawFailed();
+        }
+
+        // Transferir WETH del vault al receiver
+        IERC20(asset()).safeTransfer(receiver, assets);
     }
 
     //* Lógica principal: deposit, mint, withdraw y redeem
@@ -163,14 +198,8 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         // Calcula las shares a mintear por el depósito. Se hace antes de mover fondos para evitar reentrancy
         shares = previewDeposit(assets);
 
-        // Transfiere el WETH del usuario al vault
-        IERC20(asset()).safeTransferFrom(msg.sender, address(this), assets);
-
-        // Hace supply de WETH a Aave (recibe aWETH 1:1 inicialmente). Si algo falla, revertimos
-        try aavePool.supply(asset(), assets, address(this), 0) {}
-        catch {
-            revert AaveVault__DepositFailed();
-        }
+        // Deposita en Aave usando función interna
+        _depositToAave(assets);
 
         // Mintea las shares calculadas previamente al receiver
         _mint(receiver, shares);
@@ -200,14 +229,8 @@ contract AaveVault is ERC4626, Ownable, Pausable {
             revert AaveVault__MaxTVLExceeded();
         }
 
-        // Transfiere el WETH del usuario al vault
-        IERC20(asset()).safeTransferFrom(msg.sender, address(this), assets);
-
-        // Hace supply de WETH a Aave (recibe aWETH). Si algo falla, revertimos
-        try aavePool.supply(asset(), assets, address(this), 0) {}
-        catch {
-            revert AaveVault__DepositFailed();
-        }
+        // Deposita en Aave usando función interna
+        _depositToAave(assets);
 
         // Mintea las shares solicitadas al receiver
         _mint(receiver, shares);
@@ -236,7 +259,7 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         if (assets == 0) revert AaveVault__ZeroAmount();
 
         // Comprueba la liquidez disponible en Aave
-        uint256 aaveAvailableLiquidity = IERC20(asset()).balanceOf(address(aWETH));
+        uint256 aaveAvailableLiquidity = IERC20(asset()).balanceOf(address(aToken));
 
         // Si Aave no tiene suficiente liquidez, revertimos (y que Dios nos pille confesados)
         if (aaveAvailableLiquidity < assets) {
@@ -256,14 +279,8 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         // Quemar shares antes de retirar de Aave (previene reentrancy)
         _burn(owner, shares);
 
-        // Withdraw de Aave. Quemamos aWETH y recibimos WETH (+yield) directo al vault
-        try aavePool.withdraw(asset(), assets, address(this)) returns (uint256) {}
-        catch {
-            revert AaveVault__WithdrawFailed();
-        }
-
-        // Transferir WETH del vault al receiver
-        IERC20(asset()).safeTransfer(receiver, assets);
+        // Retira de Aave usando función interna
+        _withdrawFromAave(assets, receiver);
 
         // Emite evento de retiro del vault y retorna las shares quemadas
         emit Withdrawn(receiver, assets, shares);
@@ -292,7 +309,7 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         assets = previewRedeem(shares);
 
         // Comprueba la liquidez disponible en Aave
-        uint256 aaveAvailableLiquidity = IERC20(asset()).balanceOf(address(aWETH));
+        uint256 aaveAvailableLiquidity = IERC20(asset()).balanceOf(address(aToken));
 
         // Si Aave no tiene suficiente liquidez, revertimos
         if (aaveAvailableLiquidity < assets) {
@@ -308,14 +325,8 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         // Quemar shares antes de retirar de Aave (previene reentrancy)
         _burn(owner, shares);
 
-        // Withdraw de Aave. Quemamos aWETH y recibimos WETH (+yield) directo al vault
-        try aavePool.withdraw(asset(), assets, address(this)) returns (uint256) {}
-        catch {
-            revert AaveVault__WithdrawFailed();
-        }
-
-        // Transferir WETH del vault al receiver
-        IERC20(asset()).safeTransfer(receiver, assets);
+        // Retira de Aave usando función interna
+        _withdrawFromAave(assets, receiver);
 
         // Emite evento de retiro del vault y retorna los assets retirados
         emit Withdrawn(receiver, assets, shares);
@@ -331,7 +342,7 @@ contract AaveVault is ERC4626, Ownable, Pausable {
      * @return Total WETH depositado + yield generado
      */
     function totalAssets() public view override returns (uint256) {
-        return aWETH.balanceOf(address(this));
+        return aToken.balanceOf(address(this));
     }
 
     /**
@@ -362,7 +373,7 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         if (paused()) return 0;
 
         // Obtiene liquidez disponible en Aave
-        uint256 aaveAvailableLiquidity = IERC20(asset()).balanceOf(address(aWETH));
+        uint256 aaveAvailableLiquidity = IERC20(asset()).balanceOf(address(aToken));
 
         // Calcula los assets del usuario a partir de sus shares
         uint256 userAssets = convertToAssets(balanceOf(owner));
@@ -407,12 +418,12 @@ contract AaveVault is ERC4626, Ownable, Pausable {
         // Pausa el vault
         _pause();
 
-        // OBtiene el balance de aWETH del vault en Aave
-        uint256 aave_balance = aWETH.balanceOf(address(this));
+        // OBtiene el balance de aToken del vault en Aave
+        uint256 aave_balance = aToken.balanceOf(address(this));
 
-        // Hace withdraw de todo el WETH correspondiente a aWETH (WETH + yield)
+        // Hace withdraw de todo el WETH correspondiente a aToken (WETH + yield)
         if (aave_balance > 0) {
-            aavePool.withdraw(WETH_SEPOLIA, aave_balance, address(this));
+            aavePool.withdraw(asset(), aave_balance, address(this));
         }
 
         // Emite evento de emergency exit
@@ -428,13 +439,13 @@ contract AaveVault is ERC4626, Ownable, Pausable {
      * @param receiver Dirección que recibirá los tokens WETH y aWETH
      */
     function emergencyWithdraw(address receiver) external onlyOwner whenPaused {
-        // Primero envía todo el aWETH disponible en el vault
-        uint256 aTokenBalance = aWETH.balanceOf(address(this));
-        aWETH.transfer(receiver, aTokenBalance);
+        // Primero envía todo el aToken disponible en el vault
+        uint256 aTokenBalance = aToken.balanceOf(address(this));
+        aToken.transfer(receiver, aTokenBalance);
 
         // Luego envía todo el WETH disponible en el vault
-        uint256 wethBalance = IERC20(WETH_SEPOLIA).balanceOf(address(this));
-        IERC20(WETH_SEPOLIA).safeTransfer(receiver, wethBalance);
+        uint256 wethBalance = IERC20(asset()).balanceOf(address(this));
+        IERC20(asset()).safeTransfer(receiver, wethBalance);
 
         // Emite evento de emergency withdraw
         emit EmergencyWithdraw(receiver, aTokenBalance);
@@ -457,7 +468,7 @@ contract AaveVault is ERC4626, Ownable, Pausable {
      * @return Cantidad de WETH disponible en Aave para withdraw
      */
     function availableLiquidity() external view returns (uint256) {
-        return IERC20(asset()).balanceOf(address(aWETH));
+        return IERC20(asset()).balanceOf(address(aToken));
     }
 
     /**
@@ -465,6 +476,6 @@ contract AaveVault is ERC4626, Ownable, Pausable {
      * @return Cantidad de aWETH que posee el vault en Aave
      */
     function getATokenBalance() external view returns (uint256) {
-        return aWETH.balanceOf(address(this));
+        return aToken.balanceOf(address(this));
     }
 }

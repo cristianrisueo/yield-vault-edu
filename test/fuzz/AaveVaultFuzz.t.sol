@@ -19,8 +19,9 @@ contract AaveVaultFuzzTest is Test {
     AaveVault public vault;
     IERC20 public weth;
 
-    /// @notice Direcciones hardcodeadas de los contratos en Sepolia
-    address constant WETH_ADDRESS = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
+    /// @notice Direcciones de los contratos en Sepolia
+    address constant WETH = 0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c;
+    address constant POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
 
     /// @notice Usuario de prueba para fuzzing
     address public alice = makeAddr("alice");
@@ -32,8 +33,8 @@ contract AaveVaultFuzzTest is Test {
      * @dev Despliega el vault e inicializa la interfaz de WETH
      */
     function setUp() public {
-        vault = new AaveVault();
-        weth = IERC20(WETH_ADDRESS);
+        vault = new AaveVault(WETH, POOL);
+        weth = IERC20(WETH);
     }
 
     //* Fuzz Tests
